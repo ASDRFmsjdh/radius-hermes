@@ -285,6 +285,19 @@ fi
 # === Bale platform: inject config when BALE_BOT_TOKEN is set ===
 if [[ -n "${BALE_BOT_TOKEN:-}" ]]; then
   echo "[bootstrap] Configuring Bale platform in config.yaml..."
+
+  # The Bale adapter internally uses the Telegram adapter, which checks
+  # TELEGRAM_ALLOWED_USERS for auth. If Telegram isn't configured, inherit
+  # Bale's allowed users so the bot doesn't block its own user.
+  if [[ -z "${TELEGRAM_BOT_TOKEN:-}" && -n "${BALE_ALLOWED_USERS:-}" && -z "${TELEGRAM_ALLOWED_USERS:-}" ]]; then
+    export TELEGRAM_ALLOWED_USERS="${BALE_ALLOWED_USERS}"
+    echo "[bootstrap] Inherited BALE_ALLOWED_USERS → TELEGRAM_ALLOWED_USERS for Bale adapter auth."
+  fi
+  if [[ -z "${TELEGRAM_BOT_TOKEN:-}" && -n "${BALE_ALLOW_ALL_USERS:-}" && -z "${TELEGRAM_ALLOW_ALL_USERS:-}" ]]; then
+    export TELEGRAM_ALLOW_ALL_USERS="${BALE_ALLOW_ALL_USERS}"
+    echo "[bootstrap] Inherited BALE_ALLOW_ALL_USERS → TELEGRAM_ALLOW_ALL_USERS."
+  fi
+
   python3 - <<'PYEOF'
 import os, yaml
 
