@@ -2243,6 +2243,7 @@ def _build_agent_graph_payload() -> dict[str, Any]:
 
     channel_specs = [
         ("telegram", "Telegram", bool(os.environ.get("TELEGRAM_BOT_TOKEN")), "Bot token configured."),
+        ("bale", "Bale", bool(os.environ.get("BALE_BOT_TOKEN")), "Bot token configured."),
         ("discord", "Discord", bool(os.environ.get("DISCORD_BOT_TOKEN")), "Bot token configured."),
         (
             "slack",

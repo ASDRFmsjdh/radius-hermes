@@ -73,12 +73,15 @@ fi
 
 # ── Check: messaging platform ────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN="$(get_var TELEGRAM_BOT_TOKEN)"
+BALE_BOT_TOKEN="$(get_var BALE_BOT_TOKEN)"
 DISCORD_BOT_TOKEN="$(get_var DISCORD_BOT_TOKEN)"
 SLACK_BOT_TOKEN="$(get_var SLACK_BOT_TOKEN)"
 SLACK_APP_TOKEN="$(get_var SLACK_APP_TOKEN)"
 
 platform_ok=false
 if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
+  platform_ok=true
+elif [[ -n "$BALE_BOT_TOKEN" ]]; then
   platform_ok=true
 elif [[ -n "$DISCORD_BOT_TOKEN" ]]; then
   platform_ok=true
@@ -89,6 +92,7 @@ fi
 if ! $platform_ok; then
   error "No messaging platform configured. Set one of:"
   echo "  • TELEGRAM_BOT_TOKEN"
+  echo "  • BALE_BOT_TOKEN"
   echo "  • DISCORD_BOT_TOKEN"
   echo "  • SLACK_BOT_TOKEN + SLACK_APP_TOKEN"
   echo ""

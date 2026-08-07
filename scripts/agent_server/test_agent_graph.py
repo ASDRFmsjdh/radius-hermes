@@ -205,6 +205,7 @@ class AgentGraphTests(unittest.TestCase):
             {
                 "JWT_API_KEY": "super-secret-api-key",
                 "TELEGRAM_BOT_TOKEN": "123:abc",
+                "BALE_BOT_TOKEN": "456:def",
                 "DISCORD_ALLOWED_USERS": "111,222",
                 "WEBHOOK_SECRET": "secret-hook",
                 "BYTEROVER_API_KEY": "memory-key",
@@ -253,6 +254,7 @@ class AgentGraphTests(unittest.TestCase):
         self.assertIn("surface:token", nodes)
         self.assertIn("capability:wallet", nodes)
         self.assertIn("channel:telegram", nodes)
+        self.assertIn("channel:bale", nodes)
         self.assertIn("tool:radius_balance", nodes)
         self.assertIn("skill:radius-wallet", nodes)
         self.assertEqual(nodes["tool:radius_balance"]["category"], "capabilities")
@@ -273,7 +275,7 @@ class AgentGraphTests(unittest.TestCase):
     def test_graph_payload_skips_token_surface_without_exchange_key(self) -> None:
         with patch.dict(
             os.environ,
-            {"JWT_API_KEY": "", "JWT_EXCHANGE_KEY": "", "TELEGRAM_BOT_TOKEN": ""},
+            {"JWT_API_KEY": "", "JWT_EXCHANGE_KEY": "", "TELEGRAM_BOT_TOKEN": "", "BALE_BOT_TOKEN": ""},
             clear=False,
         ), patch.object(
             main, "_build_agent_card_payload", return_value=self._sample_agent_card()

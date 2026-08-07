@@ -11,7 +11,7 @@ This template is worker-only: setup and configuration are done through Railway V
 - Hermes gateway running as a Railway worker
 - First-boot bootstrap from environment variables
 - Persistent Hermes state on a Railway volume at `/data`
-- Telegram, Discord, or Slack support (at least one required)
+- Telegram, Bale (بله), Discord, or Slack support (at least one required)
 - Built-in Radius Testnet wallet (instantiated via radius-cli on first boot, auto-funded via faucet)
 - Agent discovery layer served at `/.well-known/*` — ERC 8004 registration, Cloudflare agent skills discovery, and A2A agent card
 - Agent-to-agent (A2A) communication with two execution modes: direct (inline `message/send` + `message/stream`) and delegated (webhook-backed async submission)
@@ -179,6 +179,7 @@ Set at least one messaging platform:
 | Variable | Description |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
+| `BALE_BOT_TOKEN` | Bale (بله) bot token |
 | `DISCORD_BOT_TOKEN` | Discord bot token |
 | `SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN` | Slack (both required) |
 
@@ -591,7 +592,7 @@ Always confirm with the user before sending tokens.
 
 After deploy:
 
-1. Start a chat with your bot on Telegram/Discord/Slack.
+1. Start a chat with your bot on Telegram/Bale/Discord/Slack.
 2. Ensure your user ID is in the allowlist.
 3. Send a message — Hermes responds via the configured model.
 
@@ -640,7 +641,7 @@ An optional integer variable (e.g. `HERMES_MAX_ITERATIONS`) is set in Railway wi
 Provider/key mismatch. Set `HERMES_INFERENCE_PROVIDER` explicitly (e.g. `openrouter`) to avoid auto-selection picking the wrong provider.
 
 **Bot connected but no replies**
-Check `TELEGRAM_ALLOWED_USERS` / `DISCORD_ALLOWED_USERS` / `SLACK_ALLOWED_USERS`. Your user ID must be in the list, or set `GATEWAY_ALLOW_ALL_USERS=true` (not recommended for public bots).
+Check `TELEGRAM_ALLOWED_USERS` / `BALE_ALLOWED_USERS` / `DISCORD_ALLOWED_USERS` / `SLACK_ALLOWED_USERS`. Your user ID must be in the list, or set `GATEWAY_ALLOW_ALL_USERS=true` (not recommended for public bots).
 
 **Railway only shows HTTP access lines**
 Make sure you're on a deployment with the updated entrypoint. The template now forwards Hermes log files into Railway output and emits structured JSON from the agent server. Search Railway logs for `@event:a2a.request` or text like `[hermes:agent.log]`.
