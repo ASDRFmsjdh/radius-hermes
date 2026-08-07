@@ -298,6 +298,7 @@ except Exception:
 platforms = cfg.setdefault("platforms", {})
 bale = platforms.setdefault("bale", {})
 bale["enabled"] = True
+bale["token"] = os.environ.get("BALE_BOT_TOKEN", "")
 extra = bale.setdefault("extra", {})
 extra["base_url"] = "https://tapi.bale.ai/"
 extra["base_file_url"] = "https://tapi.bale.ai/"

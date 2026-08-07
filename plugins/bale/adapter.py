@@ -29,32 +29,20 @@ def _build_adapter(config):
     """Build a Telegram adapter configured for Bale API."""
     try:
         from plugins.platforms.telegram.adapter import _build_adapter as _tg_build
-        # Inject Bale base URL into config.extra before building
+
+        # Ensure token is set from env (entrypoint.sh writes it to config.yaml,
+        # but belt-and-suspenders: also check env directly).
+        bale_token = os.environ.get("BALE_BOT_TOKEN", "").strip()
+        if bale_token and not getattr(config, "token", None):
+            config.token = bale_token
+
+        # Inject Bale base URL into config.extra
         extra = getattr(config, "extra", None) or {}
         if not isinstance(extra, dict):
             extra = {}
-
         extra["base_url"] = BALE_BASE_URL
         extra["base_file_url"] = BALE_BASE_URL
         config.extra = extra
-
-        # CRITICAL: The Telegram adapter reads TELEGRAM_BOT_TOKEN from env.
-        # We must set it so the Telegram adapter picks up the Bale token.
-        bale_token = (
-            getattr(config, "token", None)
-            or os.environ.get("BALE_BOT_TOKEN", "")
-        )
-        if bale_token and not os.environ.get("TELEGRAM_BOT_TOKEN"):
-            os.environ["TELEGRAM_BOT_TOKEN"] = bale_token
-
-        # Also forward BALE_ALLOWED_USERS as TELEGRAM_ALLOWED_USERS
-        bale_users = os.environ.get("BALE_ALLOWED_USERS", "")
-        if bale_users and not os.environ.get("TELEGRAM_ALLOWED_USERS"):
-            os.environ["TELEGRAM_ALLOWED_USERS"] = bale_users
-
-        bale_all = os.environ.get("BALE_ALLOW_ALL_USERS", "")
-        if bale_all and not os.environ.get("TELEGRAM_ALLOW_ALL_USERS"):
-            os.environ["TELEGRAM_ALLOW_ALL_USERS"] = bale_all
 
         adapter = _tg_build(config)
         logger.info("Bale adapter built (Telegram-compatible, base_url=%s)", BALE_BASE_URL)
