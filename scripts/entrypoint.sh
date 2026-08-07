@@ -282,6 +282,32 @@ PYEOF
   fi
 fi
 
+# === Bale platform: inject config when BALE_BOT_TOKEN is set ===
+if [[ -n "${BALE_BOT_TOKEN:-}" ]]; then
+  echo "[bootstrap] Configuring Bale platform in config.yaml..."
+  python3 - <<'PYEOF'
+import os, yaml
+
+cfg_file = os.environ["HERMES_HOME"] + "/config.yaml"
+try:
+    with open(cfg_file) as f:
+        cfg = yaml.safe_load(f) or {}
+except Exception:
+    cfg = {}
+
+platforms = cfg.setdefault("platforms", {})
+bale = platforms.setdefault("bale", {})
+bale["enabled"] = True
+extra = bale.setdefault("extra", {})
+extra["base_url"] = "https://tapi.bale.ai/"
+extra["base_file_url"] = "https://tapi.bale.ai/"
+
+with open(cfg_file, "w") as f:
+    yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+print("[bootstrap] Bale platform configured in config.yaml (base_url=https://tapi.bale.ai/)")
+PYEOF
+fi
+
 # Ensure model is set in config.yaml (handles existing installs and model changes)
 if [[ -n "${LLM_MODEL:-}" ]]; then
   if grep -q "^model:" "$CONFIG_FILE" 2>/dev/null; then
