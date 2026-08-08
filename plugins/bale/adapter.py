@@ -11,8 +11,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 BALE_BASE_URL = "https://tapi.bale.ai/bot"
-# PTB file URL pattern: base_file_url + "/{file_path}"
-# Telegram default: https://api.telegram.org/file/bot
 BALE_FILE_URL = "https://tapi.bale.ai/file/bot"
 
 
@@ -28,13 +26,33 @@ def _is_connected(config) -> bool:
     return bool(str(token).strip())
 
 
+def _bale_is_authorized(self, message) -> bool:
+    """Check if sender is in BALE_ALLOWED_USERS.
+
+    This replaces the Telegram adapter's _is_user_authorized_from_message
+    which only checks TELEGRAM_ALLOWED_USERS.
+    """
+    user = getattr(message, "from_user", None)
+    user_id = str(getattr(user, "id", "")).strip()
+    if not user_id:
+        return True  # no identity → defer to cold path
+
+    allow_all = os.environ.get("BALE_ALLOW_ALL_USERS", "").strip().lower()
+    if allow_all in ("true", "1", "yes"):
+        return True
+
+    allowed_csv = os.environ.get("BALE_ALLOWED_USERS", "").strip()
+    if not allowed_csv:
+        return True  # no allowlist → open
+
+    allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
+    return "*" in allowed_ids or user_id in allowed_ids
+
+
 def _build_adapter(config):
     """Build a Telegram adapter configured for Bale API."""
     try:
-        from plugins.platforms.telegram.adapter import (
-            _build_adapter as _tg_build,
-            _is_user_authorized_from_message as _tg_is_authorized,
-        )
+        from plugins.platforms.telegram.adapter import _build_adapter as _tg_build
         from gateway.config import Platform
 
         # Ensure token is set from env
@@ -53,13 +71,19 @@ def _build_adapter(config):
         adapter = _tg_build(config)
 
         # ── Fix 1: Override platform ──────────────────────────────
+        # build_source() uses self.platform for SessionSource.
         adapter.platform = Platform("bale")
 
-        # ── Fix 2: Monkey-patch auth to use BALE_ALLOWED_USERS ───
-        # The Telegram adapter's _is_user_authorized_from_message
-        # hardcodes TELEGRAM_ALLOWED_USERS as fallback. We override
-        # the _source_from_message_for_auth to stamp Platform("bale")
-        # so the runner checks BALE_ALLOWED_USERS instead.
+        # ── Fix 2: Override auth to use BALE_ALLOWED_USERS ────────
+        # Replace _is_user_authorized_from_message entirely so it
+        # checks BALE_ALLOWED_USERS instead of TELEGRAM_ALLOWED_USERS.
+        adapter._is_user_authorized_from_message = types.MethodType(
+            _bale_is_authorized, adapter
+        )
+
+        # ── Fix 3: Stamp Platform("bale") on auth source ─────────
+        # _source_from_message_for_auth hardcodes Platform.TELEGRAM.
+        # Override so runner picks BALE_ALLOWED_USERS env var.
         _orig_auth_source = adapter._source_from_message_for_auth
 
         def _bale_auth_source(self_adapter, message):
@@ -72,46 +96,14 @@ def _build_adapter(config):
             _bale_auth_source, adapter
         )
 
-        # Also patch _is_user_authorized_from_message to check
-        # BALE_ALLOWED_USERS directly, as a safety net in case
-        # the runner path doesn't respect source.platform for auth.
-        def _bale_is_authorized(self_adapter, message):
-            # First try the normal path with patched source
-            result = _tg_is_authorized(self_adapter, message)
-            if result:
-                return True
-
-            # Fallback: check BALE_ALLOWED_USERS directly
-            user = getattr(message, "from_user", None)
-            user_id = str(getattr(user, "id", "")).strip()
-            if not user_id:
-                return True  # no identity → defer to cold path
-
-            allow_all = os.environ.get("BALE_ALLOW_ALL_USERS", "").strip().lower()
-            if allow_all in ("true", "1", "yes"):
-                return True
-
-            allowed_csv = os.environ.get("BALE_ALLOWED_USERS", "").strip()
-            if not allowed_csv:
-                return True  # no allowlist → open
-
-            allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
-            return "*" in allowed_ids or user_id in allowed_ids
-
-        adapter._is_user_authorized_from_message = types.MethodType(
-            _bale_is_authorized, adapter
-        )
-
         logger.info(
             "Bale adapter built (base_url=%s, file_url=%s)",
             BALE_BASE_URL, BALE_FILE_URL,
         )
         return adapter
-    except ImportError as e:
-        raise RuntimeError(
-            "Bale adapter requires the Telegram platform plugin. "
-            "Make sure the telegram-platform plugin is installed."
-        ) from e
+    except Exception as e:
+        logger.error("Bale adapter build failed: %s", e, exc_info=True)
+        raise
 
 
 async def _standalone_send(pconfig, chat_id, message, **kwargs):
@@ -124,13 +116,11 @@ async def _standalone_send(pconfig, chat_id, message, **kwargs):
         except Exception:
             token = os.environ.get("BALE_BOT_TOKEN", "")
 
-    base_url = BALE_BASE_URL
-
     from tools.send_message_tool import _send_telegram
     import tools.send_message_tool as smt
     original_base = getattr(smt, "_TELEGRAM_BASE_URL", None)
     try:
-        smt._TELEGRAM_BASE_URL = base_url
+        smt._TELEGRAM_BASE_URL = BALE_BASE_URL
         return await _send_telegram(token, chat_id, message, **kwargs)
     finally:
         if original_base is not None:
