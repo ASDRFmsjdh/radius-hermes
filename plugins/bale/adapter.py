@@ -26,16 +26,10 @@ def _is_connected(config) -> bool:
     return bool(str(token).strip())
 
 
-def _bale_is_authorized(self, message) -> bool:
-    """Check if sender is in BALE_ALLOWED_USERS.
-
-    This replaces the Telegram adapter's _is_user_authorized_from_message
-    which only checks TELEGRAM_ALLOWED_USERS.
-    """
-    user = getattr(message, "from_user", None)
-    user_id = str(getattr(user, "id", "")).strip()
+def _check_bale_user(user_id: str) -> bool:
+    """Check if a user_id is in BALE_ALLOWED_USERS."""
     if not user_id:
-        return True  # no identity → defer to cold path
+        return True
 
     allow_all = os.environ.get("BALE_ALLOW_ALL_USERS", "").strip().lower()
     if allow_all in ("true", "1", "yes"):
@@ -47,6 +41,13 @@ def _bale_is_authorized(self, message) -> bool:
 
     allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
     return "*" in allowed_ids or user_id in allowed_ids
+
+
+def _bale_is_authorized(self, message) -> bool:
+    """Check if sender is in BALE_ALLOWED_USERS (replaces Telegram's auth)."""
+    user = getattr(message, "from_user", None)
+    user_id = str(getattr(user, "id", "")).strip()
+    return _check_bale_user(user_id)
 
 
 def _build_adapter(config):
@@ -71,19 +72,25 @@ def _build_adapter(config):
         adapter = _tg_build(config)
 
         # ── Fix 1: Override platform ──────────────────────────────
-        # build_source() uses self.platform for SessionSource.
         adapter.platform = Platform("bale")
 
-        # ── Fix 2: Override auth to use BALE_ALLOWED_USERS ────────
-        # Replace _is_user_authorized_from_message entirely so it
-        # checks BALE_ALLOWED_USERS instead of TELEGRAM_ALLOWED_USERS.
+        # ── Fix 2: Override _is_user_authorized_from_message ─────
         adapter._is_user_authorized_from_message = types.MethodType(
             _bale_is_authorized, adapter
         )
 
-        # ── Fix 3: Stamp Platform("bale") on auth source ─────────
-        # _source_from_message_for_auth hardcodes Platform.TELEGRAM.
-        # Override so runner picks BALE_ALLOWED_USERS env var.
+        # ── Fix 3: Override _is_callback_user_authorized ──────────
+        # This is used by terminal command approval (ea:choice:id).
+        # Hardcodes Platform.TELEGRAM → runner checks TELEGRAM_ALLOWED_USERS.
+        # Override to check BALE_ALLOWED_USERS directly.
+        def _bale_callback_auth(self_adapter, user_id, **kwargs):
+            return _check_bale_user(str(user_id).strip())
+
+        adapter._is_callback_user_authorized = types.MethodType(
+            _bale_callback_auth, adapter
+        )
+
+        # ── Fix 4: Stamp Platform("bale") on auth source ─────────
         _orig_auth_source = adapter._source_from_message_for_auth
 
         def _bale_auth_source(self_adapter, message):
