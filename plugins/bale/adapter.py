@@ -11,6 +11,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 BALE_BASE_URL = "https://tapi.bale.ai/bot"
+# PTB file URL pattern: base_file_url + "/{file_path}"
+# Telegram default: https://api.telegram.org/file/bot
+BALE_FILE_URL = "https://tapi.bale.ai/file/bot"
 
 
 def _is_connected(config) -> bool:
@@ -28,7 +31,10 @@ def _is_connected(config) -> bool:
 def _build_adapter(config):
     """Build a Telegram adapter configured for Bale API."""
     try:
-        from plugins.platforms.telegram.adapter import _build_adapter as _tg_build
+        from plugins.platforms.telegram.adapter import (
+            _build_adapter as _tg_build,
+            _is_user_authorized_from_message as _tg_is_authorized,
+        )
         from gateway.config import Platform
 
         # Ensure token is set from env
@@ -36,34 +42,28 @@ def _build_adapter(config):
         if bale_token and not getattr(config, "token", None):
             config.token = bale_token
 
-        # Inject Bale base URL into config.extra
+        # Inject Bale URLs into config.extra
         extra = getattr(config, "extra", None) or {}
         if not isinstance(extra, dict):
             extra = {}
         extra["base_url"] = BALE_BASE_URL
-        extra["base_file_url"] = BALE_BASE_URL
+        extra["base_file_url"] = BALE_FILE_URL
         config.extra = extra
 
         adapter = _tg_build(config)
 
-        # ── Override platform ──────────────────────────────────────
-        # build_source() uses self.platform for SessionSource, so this
-        # alone fixes the routing: gateway looks up adapters[Platform("bale")]
-        # instead of adapters[Platform.TELEGRAM].
+        # ── Fix 1: Override platform ──────────────────────────────
         adapter.platform = Platform("bale")
 
-        # ── Monkey-patch auth source builder ───────────────────────
-        # _source_from_message_for_auth() hardcodes Platform.TELEGRAM
-        # (line 1046 of the Telegram adapter).  The runner's
-        # _is_user_authorized() reads source.platform to pick the
-        # allowed-users env var.  If source.platform is TELEGRAM, it
-        # checks TELEGRAM_ALLOWED_USERS — which doesn't include the
-        # Bale user ID.  By stamping Platform("bale") on the auth
-        # source, the runner checks BALE_ALLOWED_USERS instead.
-        _orig_auth = adapter._source_from_message_for_auth
+        # ── Fix 2: Monkey-patch auth to use BALE_ALLOWED_USERS ───
+        # The Telegram adapter's _is_user_authorized_from_message
+        # hardcodes TELEGRAM_ALLOWED_USERS as fallback. We override
+        # the _source_from_message_for_auth to stamp Platform("bale")
+        # so the runner checks BALE_ALLOWED_USERS instead.
+        _orig_auth_source = adapter._source_from_message_for_auth
 
         def _bale_auth_source(self_adapter, message):
-            source = _orig_auth(message)
+            source = _orig_auth_source(message)
             if source is not None:
                 source.platform = Platform("bale")
             return source
@@ -72,7 +72,40 @@ def _build_adapter(config):
             _bale_auth_source, adapter
         )
 
-        logger.info("Bale adapter built (base_url=%s)", BALE_BASE_URL)
+        # Also patch _is_user_authorized_from_message to check
+        # BALE_ALLOWED_USERS directly, as a safety net in case
+        # the runner path doesn't respect source.platform for auth.
+        def _bale_is_authorized(self_adapter, message):
+            # First try the normal path with patched source
+            result = _tg_is_authorized(self_adapter, message)
+            if result:
+                return True
+
+            # Fallback: check BALE_ALLOWED_USERS directly
+            user = getattr(message, "from_user", None)
+            user_id = str(getattr(user, "id", "")).strip()
+            if not user_id:
+                return True  # no identity → defer to cold path
+
+            allow_all = os.environ.get("BALE_ALLOW_ALL_USERS", "").strip().lower()
+            if allow_all in ("true", "1", "yes"):
+                return True
+
+            allowed_csv = os.environ.get("BALE_ALLOWED_USERS", "").strip()
+            if not allowed_csv:
+                return True  # no allowlist → open
+
+            allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
+            return "*" in allowed_ids or user_id in allowed_ids
+
+        adapter._is_user_authorized_from_message = types.MethodType(
+            _bale_is_authorized, adapter
+        )
+
+        logger.info(
+            "Bale adapter built (base_url=%s, file_url=%s)",
+            BALE_BASE_URL, BALE_FILE_URL,
+        )
         return adapter
     except ImportError as e:
         raise RuntimeError(
