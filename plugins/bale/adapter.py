@@ -46,44 +46,15 @@ def _build_adapter(config):
 
         adapter = _tg_build(config)
 
-        # CRITICAL: Override adapter platform so the gateway routes responses
-        # back through THIS adapter (with base_url=tapi.bale.ai) instead of
-        # the real Telegram adapter (which hits api.telegram.org).
+        # CRITICAL: Override platform to "bale" so the gateway routes
+        # responses back through THIS adapter (with base_url=tapi.bale.ai)
+        # instead of the real Telegram adapter (which hits api.telegram.org).
+        #
+        # This works because build_source() in base.py uses self.platform
+        # when constructing SessionSource — so all inbound sources will be
+        # stamped with Platform("bale"), and _adapter_for_source() will
+        # match this adapter correctly.
         adapter.platform = Platform("bale")
-
-        # CRITICAL: Monkey-patch _source_from_message and
-        # _source_from_message_for_auth so that SessionSource objects created
-        # from inbound Bale messages are stamped with Platform("bale") instead
-        # of Platform.TELEGRAM. Without this, the gateway's adapter lookup
-        # (_adapter_for_source) sees source.platform=TELEGRAM, can't find a
-        # matching adapter (Bale is stored under Platform("bale")), and falls
-        # back to the real Telegram adapter for sending — which hits the wrong
-        # API and returns "Chat not found".
-        _original_source = adapter._source_from_message
-        _original_auth_source = getattr(
-            adapter, "_source_from_message_for_auth", None
-        )
-
-        def _bale_source_from_message(self_adapter, message, **kwargs):
-            source = _original_source(message, **kwargs)
-            if source is not None:
-                source.platform = Platform("bale")
-            return source
-
-        def _bale_auth_source(self_adapter, message):
-            source = _original_auth_source(message)
-            if source is not None:
-                source.platform = Platform("bale")
-            return source
-
-        import types
-        adapter._source_from_message = types.MethodType(
-            _bale_source_from_message, adapter
-        )
-        if _original_auth_source is not None:
-            adapter._source_from_message_for_auth = types.MethodType(
-                _bale_auth_source, adapter
-            )
 
         logger.info("Bale adapter built (Telegram-compatible, base_url=%s)", BALE_BASE_URL)
         return adapter
