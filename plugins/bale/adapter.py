@@ -10,7 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-BALE_BASE_URL = "https://tapi.bale.ai/"
+BALE_BASE_URL = "https://tapi.bale.ai/bot"
 
 
 def _is_connected(config) -> bool:
