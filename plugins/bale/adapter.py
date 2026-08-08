@@ -6,6 +6,7 @@ built-in Telegram adapter and overrides the API base URL.
 """
 
 import os
+import types
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,7 @@ def _build_adapter(config):
         from plugins.platforms.telegram.adapter import _build_adapter as _tg_build
         from gateway.config import Platform
 
-        # Ensure token is set from env (entrypoint.sh writes it to config.yaml,
-        # but belt-and-suspenders: also check env directly).
+        # Ensure token is set from env
         bale_token = os.environ.get("BALE_BOT_TOKEN", "").strip()
         if bale_token and not getattr(config, "token", None):
             config.token = bale_token
@@ -46,17 +46,33 @@ def _build_adapter(config):
 
         adapter = _tg_build(config)
 
-        # CRITICAL: Override platform to "bale" so the gateway routes
-        # responses back through THIS adapter (with base_url=tapi.bale.ai)
-        # instead of the real Telegram adapter (which hits api.telegram.org).
-        #
-        # This works because build_source() in base.py uses self.platform
-        # when constructing SessionSource — so all inbound sources will be
-        # stamped with Platform("bale"), and _adapter_for_source() will
-        # match this adapter correctly.
+        # ── Override platform ──────────────────────────────────────
+        # build_source() uses self.platform for SessionSource, so this
+        # alone fixes the routing: gateway looks up adapters[Platform("bale")]
+        # instead of adapters[Platform.TELEGRAM].
         adapter.platform = Platform("bale")
 
-        logger.info("Bale adapter built (Telegram-compatible, base_url=%s)", BALE_BASE_URL)
+        # ── Monkey-patch auth source builder ───────────────────────
+        # _source_from_message_for_auth() hardcodes Platform.TELEGRAM
+        # (line 1046 of the Telegram adapter).  The runner's
+        # _is_user_authorized() reads source.platform to pick the
+        # allowed-users env var.  If source.platform is TELEGRAM, it
+        # checks TELEGRAM_ALLOWED_USERS — which doesn't include the
+        # Bale user ID.  By stamping Platform("bale") on the auth
+        # source, the runner checks BALE_ALLOWED_USERS instead.
+        _orig_auth = adapter._source_from_message_for_auth
+
+        def _bale_auth_source(self_adapter, message):
+            source = _orig_auth(message)
+            if source is not None:
+                source.platform = Platform("bale")
+            return source
+
+        adapter._source_from_message_for_auth = types.MethodType(
+            _bale_auth_source, adapter
+        )
+
+        logger.info("Bale adapter built (base_url=%s)", BALE_BASE_URL)
         return adapter
     except ImportError as e:
         raise RuntimeError(
@@ -75,11 +91,9 @@ async def _standalone_send(pconfig, chat_id, message, **kwargs):
         except Exception:
             token = os.environ.get("BALE_BOT_TOKEN", "")
 
-    # Override API URL for Bale
     base_url = BALE_BASE_URL
 
     from tools.send_message_tool import _send_telegram
-    # Monkey-patch the base URL for this call
     import tools.send_message_tool as smt
     original_base = getattr(smt, "_TELEGRAM_BASE_URL", None)
     try:
